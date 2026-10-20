@@ -1,0 +1,9 @@
+# Exclude any browser extensions, session files, and Python cache
+audit-trail-extension/
+*extension*/
+1life_session.json
+__pycache__/
+*.pyc
+.env
+*.zip
+live_portal_data.json

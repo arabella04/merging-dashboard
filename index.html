@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QA Audit Trail &amp; Risk Monitoring Dashboard | Account Deduplication &amp; Merge Operations</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkBg: '#131722',
+                        darkCard: '#1e222d',
+                        darkElevated: '#252a37',
+                        darkBorder: '#2e3446',
+                        riskHigh: '#dc3545',
+                        riskReview: '#fd7e14',
+                        riskAmber: '#ffc107',
+                        riskSafe: '#28a745',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'Fira Code', 'Consolas', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- SheetJS Style (xlsx-js-style) for Styled .xlsx Export with colored risk cells & auto-fit widths -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+    <!-- Fallback standard SheetJS if needed -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+        :root {
+            --bg-main: #f8fafc;
+            --bg-card: #ffffff;
+            --bg-elevated: #f1f5f9;
+            --border-color: #e2e8f0;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #64748b;
+        }
+
+        html.dark {
+            --bg-main: #131722;
+            --bg-card: #1e222d;
+            --bg-elevated: #252a37;
+            --border-color: #2e3446;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            transition: background-color 0.2s ease, color 0.2s ease;
+        }
+
+        .portal-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .portal-elevated {
+            background-color: var(--bg-elevated);
+            border: 1px solid var(--border-color);
+        }
+
+        .portal-border {
+            border-color: var(--border-color);
+        }
+
+        /* Pulsating Live Dot */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.85); opacity: 0.9; box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7); }
+            70% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 8px rgba(40, 167, 69, 0); }
+            100% { transform: scale(0.85); opacity: 0.9; box-shadow: 0 0 0 0 rgba(40, 167, 69, 0); }
+        }
+        .pulse-green-dot {
+            animation: pulse-ring 2s infinite;
+        }
+
+        /* Inline Discrepancy Diff Chips */
+        .diff-chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            font-weight: 600;
+            line-height: 1.35;
+            margin: 0 1px;
+        }
+        html.dark .diff-primary {
+            background-color: rgba(59, 130, 246, 0.18);
+            color: #93c5fd;
+            border: 1px solid rgba(59, 130, 246, 0.35);
+        }
+        html:not(.dark) .diff-primary {
+            background-color: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #93c5fd;
+        }
+
+        html.dark .diff-affected {
+            background-color: rgba(253, 126, 20, 0.2);
+            color: #fdba74;
+            border: 1px solid rgba(253, 126, 20, 0.4);
+        }
+        html:not(.dark) .diff-affected {
+            background-color: #ffedd5;
+            color: #9a3412;
+            border: 1px solid #fdba74;
+        }
+
+        html.dark .diff-danger {
+            background-color: rgba(220, 53, 69, 0.22);
+            color: #fca5a5;
+            border: 1px solid rgba(220, 53, 69, 0.45);
+        }
+        html:not(.dark) .diff-danger {
+            background-color: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+
+        html.dark .diff-warn {
+            background-color: rgba(255, 193, 7, 0.18);
+            color: #fde047;
+            border: 1px solid rgba(255, 193, 7, 0.4);
+        }
+        html:not(.dark) .diff-warn {
+            background-color: #fef9c3;
+            color: #854d0e;
+            border: 1px solid #fde047;
+        }
+
+        html.dark .diff-safe {
+            background-color: rgba(40, 167, 69, 0.2);
+            color: #86efac;
+            border: 1px solid rgba(40, 167, 69, 0.4);
+        }
+        html:not(.dark) .diff-safe {
+            background-color: #dcfce7;
+            color: #166534;
+            border: 1px solid #86efac;
+        }
+
+        /* Risk Badges */
+        .badge-high-risk {
+            background-color: #dc3545;
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(220, 53, 69, 0.35);
+        }
+        .badge-medium-risk {
+            background: linear-gradient(135deg, #fd7e14 0%, #ffc107 100%);
+            color: #111827;
+            font-weight: 700;
+            box-shadow: 0 2px 8px rgba(253, 126, 20, 0.25);
+        }
+        .badge-safe-match {
+            background-color: #28a745;
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(40, 167, 69, 0.25);
+        }
+
+        /* Operator Chip Active Glow */
+        .op-chip-active {
+            border-color: #3b82f6 !important;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35);
+        }
+
+        /* Custom Scrollbars */
+        ::-webkit-scrollbar {
+            width: 7px;
+            height: 7px;
+        }
+        html.dark ::-webkit-scrollbar-track {
+            background: #131722;
+        }
+        html.dark ::-webkit-scrollbar-thumb {
+            background: #2e3446;
+            border-radius: 4px;
+        }
+        html.dark ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+        html:not(.dark) ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        html:not(.dark) ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        /* Row highlight for High Risk */
+        html.dark tr.row-high-risk {
+            background-color: rgba(220, 53, 69, 0.055);
+        }
+        html.dark tr.row-high-risk:hover {
+            background-color: rgba(220, 53, 69, 0.11);
+        }
+        html:not(.dark) tr.row-high-risk {
+            background-color: rgba(254, 226, 226, 0.45);
+        }
+        html:not(.dark) tr.row-high-risk:hover {
+            background-color: rgba(254, 226, 226, 0.8);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-blue-500 selection:text-white">
+
+    <!-- TOP NAVIGATION & REAL-TIME AUTO-SYNC BAR -->
+    <header class="portal-card sticky top-0 z-30 border-t-0 border-x-0 shadow-sm">
+        <div class="max-w-[1600px] mx-auto px-4 sm:px-6 py-3">
+            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                <!-- Left Brand & Title -->
+                <div class="flex items-center gap-3.5">
+                    <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white shadow-md shadow-blue-600/20 shrink-0">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="flex flex-wrap items-center gap-2.5">
+                            <h1 class="text-lg sm:text-xl font-bold tracking-tight">QA Audit Trail &amp; Risk Monitoring Dashboard</h1>
+                            <span class="px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                                Supervisor Console v2.4
+                            </span>
+                        </div>
+                        <p class="text-xs text-slate-400 mt-0.5">
+                            Real-Time Account Deduplication, Merge Verification &amp; Automated Demographic Discrepancy Engine
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Right Controls: Auto-Sync Engine, Simulate Live Op, Excel Export, Theme Toggle -->
+                <div class="flex flex-wrap items-center gap-2.5">
+                    <!-- Real-Time Auto-Sync Engine Pill -->
+                    <div class="portal-elevated rounded-xl px-3 py-1.5 flex items-center gap-3 text-xs">
+                        <div class="flex items-center gap-2">
+                            <span id="sync-status-dot" class="w-2.5 h-2.5 rounded-full bg-[#28a745] pulse-green-dot inline-block"></span>
+                            <div>
+                                <div class="flex items-center gap-1.5">
+                                    <span id="sync-status-text" class="font-semibold text-emerald-400">Synced just now</span>
+                                    <span id="sync-countdown-badge" class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-500/20 text-slate-300">30s</span>
+                                </div>
+                                <div class="text-[10px] text-slate-400">
+                                    Last Sync: <span id="last-synced-timestamp" class="font-mono text-slate-300">Oct 20, 2026 09:09:57 AM</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="h-6 w-[1px] bg-slate-600/40"></div>
+
+                        <!-- Auto-Refresh Interval Selector -->
+                        <div class="flex items-center gap-1.5">
+                            <label for="auto-refresh-select" class="text-[11px] text-slate-400 font-medium">Auto-Sync:</label>
+                            <select id="auto-refresh-select" onchange="updateAutoSyncInterval(this.value)" class="bg-transparent font-semibold text-xs rounded px-1.5 py-1 border border-slate-600/50 focus:outline-none focus:border-blue-500 cursor-pointer">
+                                <option value="30" class="bg-slate-800 text-white" selected>Every 30s</option>
+                                <option value="60" class="bg-slate-800 text-white">Every 60s</option>
+                                <option value="300" class="bg-slate-800 text-white">Every 5m</option>
+                                <option value="0" class="bg-slate-800 text-white">Paused</option>
+                            </select>
+                        </div>
+
+                        <!-- Manual Sync Now Button -->
+                        <button id="btn-sync-now" onclick="triggerManualSync()" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 font-semibold text-xs transition active:scale-95" title="Synchronize local database">
+                            <svg id="sync-spinner-icon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                            <span>Sync Now</span>
+                        </button>
+                    </div>
+
+                    <!-- Dataset Scope Switcher (Latest 211 Scan vs All 611 History) -->
+                    <div class="portal-elevated rounded-xl px-2.5 py-1.5 flex items-center gap-1.5 text-xs">
+                        <span class="text-[10px] font-bold uppercase text-slate-400">Extension DB:</span>
+                        <select id="dataset-scope-select" onchange="switchExtensionDatasetScope(this.value)" class="bg-transparent font-bold text-xs text-teal-400 focus:outline-none cursor-pointer">
+                            <option value="latest" class="bg-slate-800 text-white" selected>Latest Scan (211 Merges • 10-19)</option>
+                            <option value="combined" class="bg-slate-800 text-white">All Scanned Exports (611 Merges)</option>
+                        </select>
+                    </div>
+
+                    <!-- Upload / Import Extension .XLSX File Button -->
+                    <label class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/40 text-xs font-bold text-teal-300 transition shadow-sm cursor-pointer" title="Load any exported 1Life_Audit_Trail_Merges_*.xlsx file directly from your computer">
+                        <input type="file" id="upload-ext-xlsx" accept=".xlsx,.xls,.csv" onchange="handleExtensionFileUpload(event)" class="hidden">
+                        <span>📥 Load Extension .XLSX</span>
+                    </label>
+
+                    <!-- Simulate Incoming QA Event Button (Great for testing real-time engine) -->
+                    <button onclick="openSimulateModal()" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl portal-elevated hover:border-purple-500/50 text-xs font-semibold text-purple-400 transition" title="Test the Automated Risk Classification Engine with a custom or simulated merge">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                        <span>Test Risk Engine</span>
+                    </button>
+
+                    <!-- Customizable Excel Report Exporter Button -->
+                    <button onclick="openExportModal()" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-lg shadow-emerald-600/25 transition active:scale-95">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                        <span>Export to Excel</span>
+                    </button>
+
+                    <!-- Dark / Light Mode Toggle -->
+                    <button id="theme-toggle-btn" onclick="toggleTheme()" class="p-2 rounded-xl portal-elevated hover:border-blue-500/50 transition" title="Toggle Dark / Light Admin Theme">
+                        <!-- Sun icon (shown in dark mode) -->
+                        <svg id="theme-icon-sun" class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                        </svg>
+                        <!-- Moon icon (shown in light mode) -->
+                        <svg id="theme-icon-moon" class="w-4 h-4 text-slate-700 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT CONTAINER -->
+    <main class="max-w-[1600px] w-full mx-auto px-4 sm:px-6 py-5 flex-1 space-y-5">
+
+        <!-- 5. TOP METRIC SUMMARY CARDS (KPIs) -->
+        <section aria-label="Key Performance Indicators" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+            <!-- Card 1: Total Audited Operations -->
+            <div onclick="setQuickRiskFilter('ALL')" class="portal-card rounded-xl p-4 cursor-pointer hover:border-blue-500/60 transition group relative overflow-hidden">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Audited Operations</span>
+                    <div class="w-8 h-8 rounded-lg bg-blue-500/15 text-blue-400 flex items-center justify-center">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="mt-2 flex items-baseline gap-2">
+                    <span id="kpi-total-ops" class="text-2xl sm:text-3xl font-extrabold tracking-tight">0</span>
+                    <span class="text-xs text-blue-400 font-medium">100% Evaluated</span>
+                </div>
+                <p class="text-[11px] text-slate-400 mt-1">Click to show all audit records</p>
+            </div>
+
+            <!-- Card 2: High Risk Flagged (Red) -->
+            <div onclick="setQuickRiskFilter('HIGH RISK')" class="portal-card rounded-xl p-4 cursor-pointer border-l-4 border-l-[#dc3545] hover:border-[#dc3545] transition group relative overflow-hidden">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold uppercase tracking-wider text-[#dc3545]">High Risk Flagged</span>
+                    <div class="w-8 h-8 rounded-lg bg-[#dc3545]/20 text-[#dc3545] flex items-center justify-center">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="mt-2 flex items-baseline gap-2">
+                    <span id="kpi-high-risk" class="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#dc3545]">0</span>
+                    <span id="kpi-high-risk-pct" class="text-xs font-semibold px-1.5 py-0.5 rounded bg-[#dc3545]/15 text-[#dc3545]">0%</span>
+                </div>
+                <p class="text-[11px] text-slate-400 mt-1">Diff Name &amp; Diff DOB — Immediate Audit</p>
+            </div>
+
+            <!-- Card 3: Requires Review (Amber) -->
+            <div onclick="setQuickRiskFilter('MEDIUM / REVIEW')" class="portal-card rounded-xl p-4 cursor-pointer border-l-4 border-l-[#fd7e14] hover:border-[#fd7e14] transition group relative overflow-hidden">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold uppercase tracking-wider text-[#fd7e14]">Requires Review</span>
+                    <div class="w-8 h-8 rounded-lg bg-[#fd7e14]/20 text-[#fd7e14] flex items-center justify-center">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="mt-2 flex items-baseline gap-2">
+                    <span id="kpi-review-risk" class="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#fd7e14]">0</span>
+                    <span id="kpi-review-risk-pct" class="text-xs font-semibold px-1.5 py-0.5 rounded bg-[#fd7e14]/15 text-[#fd7e14]">0%</span>
+                </div>
+                <p class="text-[11px] text-slate-400 mt-1">Name/Suffix typo or Maiden name w/ Same DOB</p>
+            </div>
+
+            <!-- Card 4: Safe Merges (Green) -->
+            <div onclick="setQuickRiskFilter('SAFE MATCH')" class="portal-card rounded-xl p-4 cursor-pointer border-l-4 border-l-[#28a745] hover:border-[#28a745] transition group relative overflow-hidden">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold uppercase tracking-wider text-[#28a745]">Safe Merges</span>
+                    <div class="w-8 h-8 rounded-lg bg-[#28a745]/20 text-[#28a745] flex items-center justify-center">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="mt-2 flex items-baseline gap-2">
+                    <span id="kpi-safe-merges" class="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#28a745]">0</span>
+                    <span id="kpi-safe-merges-pct" class="text-xs font-semibold px-1.5 py-0.5 rounded bg-[#28a745]/15 text-[#28a745]">0%</span>
+                </div>
+                <p class="text-[11px] text-slate-400 mt-1">Exact Name, Birthday &amp; Key Identifiers</p>
+            </div>
+
+            <!-- Card 5: Active QA Operators -->
+            <div class="portal-card rounded-xl p-4 relative overflow-hidden">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Active QA Operators</span>
+                    <div class="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="mt-2 flex items-baseline gap-2">
+                    <span id="kpi-active-operators" class="text-2xl sm:text-3xl font-extrabold tracking-tight">5 / 5</span>
+                    <span class="inline-flex items-center gap-1 text-xs font-semibold text-emerald-400">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400"></span> Online
+                    </span>
+                </div>
+                <p class="text-[11px] text-slate-400 mt-1 truncate">yglao, jjdayag, amorales, jofrancisco, jtcanaway</p>
+            </div>
+        </section>
+
+        <!-- 3. DEDICATED QA OPERATOR TRACKING & WORKLOAD BAR -->
+        <section aria-label="QA Operator Tracking Bar" class="portal-card rounded-xl p-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                <div class="flex items-center gap-2">
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400">Dedicated QA Operator Workload &amp; Risk Tracking Bar</h2>
+                    <span class="text-[11px] text-slate-500 hidden md:inline">— Click any QA analyst chip to immediately filter the audit trail</span>
+                </div>
+                <button id="btn-clear-operator" onclick="selectOperatorChip('ALL')" class="text-xs text-blue-400 hover:text-blue-300 font-semibold hidden items-center gap-1">
+                    <span>Reset Operator Filter (Show All 5 Analysts)</span>
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <div id="operator-chips-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
+                <!-- Populated dynamically by app.js -->
+            </div>
+        </section>
+
+        <!-- FILTER & SEARCH TOOLBAR -->
+        <section aria-label="Data Grid Filters" class="portal-card rounded-xl p-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
+                <!-- Global Search -->
+                <div class="lg:col-span-4">
+                    <label for="search-input" class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Search Accounts, IDs, or Discrepancies</label>
+                    <div class="relative">
+                        <svg class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                        </svg>
+                        <input type="text" id="search-input" oninput="applyFilters()" placeholder="Search #Account ID, 'Mata Jr', DOB, PhilHealth, or note..." class="w-full pl-9 pr-8 py-2 rounded-lg portal-elevated text-xs focus:outline-none focus:border-blue-500">
+                    </div>
+                </div>
+
+                <!-- Risk Level Filter -->
+                <div class="lg:col-span-2">
+                    <label for="filter-risk" class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Risk Classification</label>
+                    <select id="filter-risk" onchange="applyFilters()" class="w-full px-3 py-2 rounded-lg portal-elevated text-xs font-medium focus:outline-none focus:border-blue-500 cursor-pointer">
+                        <option value="ALL" class="bg-slate-800 text-white">All Risk Tiers</option>
+                        <option value="HIGH RISK" class="bg-slate-800 text-[#dc3545] font-bold">HIGH RISK Only</option>
+                        <option value="MEDIUM / REVIEW" class="bg-slate-800 text-[#fd7e14] font-semibold">MEDIUM / REVIEW Only</option>
+                        <option value="SAFE MATCH" class="bg-slate-800 text-[#28a745] font-semibold">SAFE MATCH Only</option>
+                    </select>
+                </div>
+
+                <!-- QA Operator Dropdown Filter -->
+                <div class="lg:col-span-2">
+                    <label for="filter-operator" class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">QA Operator / User</label>
+                    <select id="filter-operator" onchange="selectOperatorChip(this.value)" class="w-full px-3 py-2 rounded-lg portal-elevated text-xs font-medium focus:outline-none focus:border-blue-500 cursor-pointer">
+                        <option value="ALL" class="bg-slate-800 text-white">All QA Operators</option>
+                        <option value="yglao" class="bg-slate-800 text-white">yglao (Y. Glao)</option>
+                        <option value="jjdayag" class="bg-slate-800 text-white">jjdayag (J. J. Dayag)</option>
+                        <option value="jasilva" class="bg-slate-800 text-white">jasilva (J. A. Silva)</option>
+                        <option value="amorales" class="bg-slate-800 text-white">amorales (A. Morales)</option>
+                        <option value="jofrancisco" class="bg-slate-800 text-white">jofrancisco (J. O. Francisco)</option>
+                        <option value="jtcanaway" class="bg-slate-800 text-white">jtcanaway (J. T. Canaway)</option>
+                        <option value="cmnarsico" class="bg-slate-800 text-white">cmnarsico (C. M. Narsico)</option>
+                    </select>
+                </div>
+
+                <!-- Action Type Filter -->
+                <div class="lg:col-span-2">
+                    <label for="filter-action" class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Action Type</label>
+                    <select id="filter-action" onchange="applyFilters()" class="w-full px-3 py-2 rounded-lg portal-elevated text-xs font-medium focus:outline-none focus:border-blue-500 cursor-pointer">
+                        <option value="ALL" class="bg-slate-800 text-white">All Actions</option>
+                        <option value="Merge Completed" class="bg-slate-800 text-white">Merge Completed</option>
+                        <option value="Merged" class="bg-slate-800 text-white">Merged</option>
+                        <option value="Unmerged" class="bg-slate-800 text-white">Unmerged</option>
+                        <option value="Accounts Compared" class="bg-slate-800 text-white">Accounts Compared</option>
+                        <option value="Flagged for Review" class="bg-slate-800 text-white">Flagged for Review</option>
+                    </select>
+                </div>
+
+                <!-- Status Filter & Reset -->
+                <div class="lg:col-span-2 flex items-center gap-2">
+                    <div class="flex-1">
+                        <label for="filter-status" class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Operation Status</label>
+                        <select id="filter-status" onchange="applyFilters()" class="w-full px-3 py-2 rounded-lg portal-elevated text-xs font-medium focus:outline-none focus:border-blue-500 cursor-pointer">
+                            <option value="ALL" class="bg-slate-800 text-white">All Statuses</option>
+                            <option value="Success" class="bg-slate-800 text-white">Success</option>
+                            <option value="Under Review" class="bg-slate-800 text-white">Under Review</option>
+                            <option value="Reverted" class="bg-slate-800 text-white">Reverted</option>
+                        </select>
+                    </div>
+                    <button onclick="resetAllFilters()" class="mt-5 px-3 py-2 rounded-lg portal-elevated hover:border-slate-400 text-xs font-medium text-slate-400 hover:text-white transition" title="Reset all filters">
+                        Reset
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 6. PRIMARY DATA GRID SPECIFICATIONS -->
+        <section aria-label="Primary Audit Trail Data Grid" class="portal-card rounded-xl overflow-hidden shadow-lg">
+            <!-- Grid Header Bar -->
+            <div class="px-4 py-3 border-b portal-border flex flex-wrap items-center justify-between gap-2">
+                <div class="flex items-center gap-2.5">
+                    <h2 class="text-sm font-bold">Account Deduplication &amp; Merge Audit Log</h2>
+                    <span id="showing-count-badge" class="px-2 py-0.5 text-xs font-mono font-semibold rounded-md bg-blue-500/15 text-blue-400">
+                        Showing 0 of 0 operations
+                    </span>
+                </div>
+                <div class="flex items-center gap-3 text-xs text-slate-400">
+                    <span class="inline-flex items-center gap-1.5">
+                        <span class="w-2.5 h-2.5 rounded-sm bg-[#dc3545]"></span> High Risk (Diff Name + Diff DOB)
+                    </span>
+                    <span class="inline-flex items-center gap-1.5">
+                        <span class="w-2.5 h-2.5 rounded-sm bg-[#fd7e14]"></span> Review (Fuzzy Name / Same DOB)
+                    </span>
+                    <span class="inline-flex items-center gap-1.5">
+                        <span class="w-2.5 h-2.5 rounded-sm bg-[#28a745]"></span> Safe Match (100% Verified)
+                    </span>
+                </div>
+            </div>
+
+            <!-- Responsive Table Wrapper -->
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="border-b portal-border text-[11px] font-bold uppercase tracking-wider text-slate-400 select-none">
+                            <th class="py-3 px-4 cursor-pointer hover:text-blue-400 transition" onclick="toggleSort('risk')">
+                                <div class="flex items-center gap-1">
+                                    <span>Risk Level</span>
+                                    <span id="sort-icon-risk" class="text-[10px]">↕</span>
+                                </div>
+                            </th>
+                            <th class="py-3 px-4 cursor-pointer hover:text-blue-400 transition" onclick="toggleSort('timestamp')">
+                                <div class="flex items-center gap-1">
+                                    <span>Date &amp; Time</span>
+                                    <span id="sort-icon-timestamp" class="text-[10px] text-blue-400">↓</span>
+                                </div>
+                            </th>
+                            <th class="py-3 px-4 cursor-pointer hover:text-blue-400 transition" onclick="toggleSort('operator')">
+                                <div class="flex items-center gap-1">
+                                    <span>QA Operator</span>
+                                    <span id="sort-icon-operator" class="text-[10px]">↕</span>
+                                </div>
+                            </th>
+                            <th class="py-3 px-4">Action</th>
+                            <th class="py-3 px-4">Primary Account</th>
+                            <th class="py-3 px-4">Affected Account(s)</th>
+                            <th class="py-3 px-4 min-w-[320px]">Discrepancy &amp; Activity Details</th>
+                            <th class="py-3 px-4">Status</th>
+                            <th class="py-3 px-4 text-right">Actions / Inspect</th>
+                        </tr>
+                    </thead>
+                    <tbody id="audit-table-body" class="divide-y portal-border text-xs">
+                        <!-- Populated by app.js -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination Footer -->
+            <div class="px-4 py-3 border-t portal-border flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
+                <div class="flex items-center gap-2">
+                    <span>Rows per page:</span>
+                    <select id="page-size-select" onchange="changePageSize(this.value)" class="portal-elevated rounded px-2 py-1 text-xs font-semibold focus:outline-none">
+                        <option value="15" class="bg-slate-800 text-white">15 rows</option>
+                        <option value="25" class="bg-slate-800 text-white" selected>25 rows</option>
+                        <option value="50" class="bg-slate-800 text-white">50 rows</option>
+                        <option value="100" class="bg-slate-800 text-white">All rows</option>
+                    </select>
+                    <span id="pagination-summary" class="ml-2">Page 1 of 1</span>
+                </div>
+                <div id="pagination-controls" class="flex items-center gap-1.5">
+                    <!-- Populated by app.js -->
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- SIDE-BY-SIDE DEMOGRAPHIC INSPECTION MODAL -->
+    <div id="inspect-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+        <div class="portal-card rounded-2xl max-w-4xl w-full overflow-hidden shadow-2xl border portal-border animate-fadeIn">
+            <!-- Modal Header -->
+            <div class="px-6 py-4 border-b portal-border flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <span id="modal-risk-badge" class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">HIGH RISK</span>
+                    <div>
+                        <h3 id="modal-title" class="text-base font-bold">Side-by-Side Account Demographic Comparison</h3>
+                        <p id="modal-subtitle" class="text-xs text-slate-400">Audit ID: AUD-5001 • Evaluated by yglao</p>
+                    </div>
+                </div>
+                <button onclick="closeInspectModal()" class="p-1.5 rounded-lg portal-elevated hover:text-red-400 transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <!-- Modal Body -->
+            <div class="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
+                <!-- Risk Explanation Banner -->
+                <div id="modal-risk-banner" class="p-4 rounded-xl border flex items-start gap-3">
+                    <svg class="w-5 h-5 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                    </svg>
+                    <div class="text-xs space-y-1">
+                        <div id="modal-risk-reason" class="font-bold text-sm">Critical Red Flag</div>
+                        <div id="modal-discrepancy-html" class="leading-relaxed"></div>
+                        <div id="modal-auditor-notes" class="text-slate-400 italic pt-1"></div>
+                    </div>
+                </div>
+
+                <!-- Side-by-Side Comparison Table -->
+                <div class="portal-elevated rounded-xl overflow-hidden border portal-border">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="border-b portal-border bg-slate-900/40 text-[11px] uppercase font-bold tracking-wider text-slate-400">
+                                <th class="py-3 px-4 w-1/4">Demographic Field</th>
+                                <th class="py-3 px-4 w-1/3 text-blue-400">Primary Account (Retained)</th>
+                                <th class="py-3 px-4 w-1/3 text-amber-400">Affected Account (Merged / Compared)</th>
+                                <th class="py-3 px-4 text-center">Match Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="modal-comparison-tbody" class="divide-y portal-border">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Supervisor Resolution Actions -->
+                <div class="flex flex-wrap items-center justify-between gap-3 pt-2">
+                    <div class="text-xs text-slate-400">
+                        Supervisor Override Action updates the audit record status in real time:
+                    </div>
+                    <div class="flex items-center gap-2.5">
+                        <button onclick="updateRecordStatusFromModal('Reverted', 'Unmerged')" class="px-3.5 py-2 rounded-xl bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/40 text-xs font-bold transition">
+                            Revert &amp; Unmerge Accounts
+                        </button>
+                        <button onclick="updateRecordStatusFromModal('Under Review', 'Flagged for Review')" class="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition">
+                            Escalate for Review
+                        </button>
+                        <button onclick="updateRecordStatusFromModal('Success', 'Merged')" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition">
+                            Approve &amp; Mark Verified
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. CUSTOMIZABLE EXCEL REPORT EXPORTER MODAL -->
+    <div id="export-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+        <div class="portal-card rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl border portal-border">
+            <!-- Header -->
+            <div class="px-6 py-4 border-b portal-border flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold">Customizable Excel Report Exporter (.xlsx)</h3>
+                        <p class="text-xs text-slate-400">Configure columns, QA operators, date range, and risk tiers with styled cells</p>
+                    </div>
+                </div>
+                <button onclick="closeExportModal()" class="p-1.5 rounded-lg portal-elevated hover:text-red-400 transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <!-- Body -->
+            <div class="p-6 space-y-5 max-h-[80vh] overflow-y-auto text-xs">
+                <!-- Quick Audit Presets -->
+                <div>
+                    <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Quick Audit Meeting Presets</label>
+                    <div class="flex flex-wrap gap-2">
+                        <button type="button" onclick="applyExportPreset('HIGH_RISK_ONLY')" class="px-3 py-1.5 rounded-lg bg-[#dc3545]/20 hover:bg-[#dc3545]/30 text-[#dc3545] border border-[#dc3545]/40 font-semibold transition">
+                            🚨 High Risk Only (Audit Meeting)
+                        </button>
+                        <button type="button" onclick="applyExportPreset('FLAGGED_AND_REVIEW')" class="px-3 py-1.5 rounded-lg bg-[#fd7e14]/20 hover:bg-[#fd7e14]/30 text-[#fd7e14] border border-[#fd7e14]/40 font-semibold transition">
+                            ⚠️ High Risk + Requires Review
+                        </button>
+                        <button type="button" onclick="applyExportPreset('FULL_REPORT')" class="px-3 py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border border-blue-500/40 font-semibold transition">
+                            📋 Full All-Operator Audit Trail
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 1. Column Selection Checkboxes -->
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="text-[11px] font-bold uppercase tracking-wider text-slate-400">1. Columns to Include in Excel Sheet</label>
+                        <div class="space-x-2">
+                            <button type="button" onclick="toggleAllExportCols(true)" class="text-blue-400 hover:underline">Select All</button>
+                            <button type="button" onclick="toggleAllExportCols(false)" class="text-slate-400 hover:underline">Clear</button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 portal-elevated p-3.5 rounded-xl">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" class="export-col-cb rounded text-blue-600" value="Date/Time" checked>
+                            <span>Date/Time</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" class="export-col-cb rounded text-blue-600" value="QA User" checked>
+                            <span>QA User</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" class="export-col-cb rounded text-blue-600" value="Action" checked>
+                            <span>Action</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" class="export-col-cb rounded text-blue-600" value="Primary Account" checked>
+                            <span>Primary Account</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" class="export-col-cb rounded text-blue-600" value="Affected Account" checked>
+                            <span>Affected Account</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" class="export-col-cb rounded text-blue-600" value="Risk Level" checked>
+                            <span>Risk Level</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" class="export-col-cb rounded text-blue-600" value="Discrepancies" checked>
+                            <span>Discrepancies</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" class="export-col-cb rounded text-blue-600" value="Status" checked>
+                            <span>Status</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- 2. Filter by Risk Levels -->
+                <div>
+                    <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">2. Filter by Risk Classification</label>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 portal-elevated p-3.5 rounded-xl">
+                        <label class="flex items-center gap-2 cursor-pointer font-semibold text-[#dc3545]">
+                            <input type="checkbox" class="export-risk-cb rounded" value="HIGH RISK" onchange="updateExportPreviewCount()" checked>
+                            <span>HIGH RISK (Red Flag)</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer font-semibold text-[#fd7e14]">
+                            <input type="checkbox" class="export-risk-cb rounded" value="MEDIUM / REVIEW" onchange="updateExportPreviewCount()" checked>
+                            <span>MEDIUM / REVIEW</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer font-semibold text-[#28a745]">
+                            <input type="checkbox" class="export-risk-cb rounded" value="SAFE MATCH" onchange="updateExportPreviewCount()" checked>
+                            <span>SAFE MATCH (Low Risk)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- 3. Filter by QA Operators -->
+                <div>
+                    <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">3. Filter by Selected QA Operators</label>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 portal-elevated p-3.5 rounded-xl">
+                        <label class="flex items-center gap-2 cursor-pointer font-mono">
+                            <input type="checkbox" class="export-op-cb rounded" value="yglao" onchange="updateExportPreviewCount()" checked>
+                            <span>yglao</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer font-mono">
+                            <input type="checkbox" class="export-op-cb rounded" value="jjdayag" onchange="updateExportPreviewCount()" checked>
+                            <span>jjdayag</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer font-mono">
+                            <input type="checkbox" class="export-op-cb rounded" value="jasilva" onchange="updateExportPreviewCount()" checked>
+                            <span>jasilva</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer font-mono">
+                            <input type="checkbox" class="export-op-cb rounded" value="amorales" onchange="updateExportPreviewCount()" checked>
+                            <span>amorales</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer font-mono">
+                            <input type="checkbox" class="export-op-cb rounded" value="jofrancisco" onchange="updateExportPreviewCount()" checked>
+                            <span>jofrancisco</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer font-mono">
+                            <input type="checkbox" class="export-op-cb rounded" value="jtcanaway" onchange="updateExportPreviewCount()" checked>
+                            <span>jtcanaway</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer font-mono">
+                            <input type="checkbox" class="export-op-cb rounded" value="cmnarsico" onchange="updateExportPreviewCount()" checked>
+                            <span>cmnarsico</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- 4. Date Range Filter -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label for="export-date-start" class="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Start Date</label>
+                        <input type="date" id="export-date-start" value="2026-09-01" onchange="updateExportPreviewCount()" class="w-full px-3 py-2 rounded-lg portal-elevated text-xs">
+                    </div>
+                    <div>
+                        <label for="export-date-end" class="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">End Date</label>
+                        <input type="date" id="export-date-end" value="2026-10-20" onchange="updateExportPreviewCount()" class="w-full px-3 py-2 rounded-lg portal-elevated text-xs">
+                    </div>
+                </div>
+
+                <!-- Export Summary Preview -->
+                <div class="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
+                    <div>
+                        <span class="font-bold text-emerald-400">Ready to Generate Styled Workbook:</span>
+                        <p class="text-[11px] text-slate-400 mt-0.5">Includes formatted headers, auto-fit column widths, and color-coded risk cells.</p>
+                    </div>
+                    <span id="export-preview-count" class="px-3 py-1 rounded-lg bg-emerald-600 text-white font-bold text-xs">
+                        90 Rows Matching
+                    </span>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="px-6 py-4 border-t portal-border flex items-center justify-end gap-3">
+                <button onclick="closeExportModal()" class="px-4 py-2 rounded-xl portal-elevated text-xs font-semibold">Cancel</button>
+                <button onclick="executeStyledExcelExport()" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    <span>Download Styled .XLSX Report</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SIMULATE / TEST RISK ENGINE MODAL -->
+    <div id="simulate-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+        <div class="portal-card rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl border portal-border">
+            <div class="px-6 py-4 border-b portal-border flex items-center justify-between">
+                <div>
+                    <h3 class="text-base font-bold">Test Automated Risk Classification Engine</h3>
+                    <p class="text-xs text-slate-400">Inject a live account merge operation to verify real-time risk badge &amp; discrepancy detection</p>
+                </div>
+                <button onclick="closeSimulateModal()" class="p-1.5 rounded-lg portal-elevated hover:text-red-400 transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-4 text-xs">
+                <div class="flex flex-wrap gap-2">
+                    <button type="button" onclick="fillSimPreset('high')" class="px-3 py-1.5 rounded-lg bg-[#dc3545]/20 text-[#dc3545] border border-[#dc3545]/40 font-semibold">
+                        Load High Risk Preset (Diff Name + Diff DOB)
+                    </button>
+                    <button type="button" onclick="fillSimPreset('medium')" class="px-3 py-1.5 rounded-lg bg-[#fd7e14]/20 text-[#fd7e14] border border-[#fd7e14]/40 font-semibold">
+                        Load Review Preset (Suffix Diff + Same DOB)
+                    </button>
+                    <button type="button" onclick="fillSimPreset('safe')" class="px-3 py-1.5 rounded-lg bg-[#28a745]/20 text-[#28a745] border border-[#28a745]/40 font-semibold">
+                        Load Safe Match Preset (Exact Match)
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">QA Operator</label>
+                        <select id="sim-operator" class="w-full px-3 py-2 rounded-lg portal-elevated">
+                            <option value="yglao" class="bg-slate-800 text-white">yglao</option>
+                            <option value="jjdayag" class="bg-slate-800 text-white">jjdayag</option>
+                            <option value="amorales" class="bg-slate-800 text-white">amorales</option>
+                            <option value="jofrancisco" class="bg-slate-800 text-white">jofrancisco</option>
+                            <option value="jtcanaway" class="bg-slate-800 text-white">jtcanaway</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Action Performed</label>
+                        <select id="sim-action" class="w-full px-3 py-2 rounded-lg portal-elevated">
+                            <option value="Merged" class="bg-slate-800 text-white">Merged</option>
+                            <option value="Flagged for Review" class="bg-slate-800 text-white">Flagged for Review</option>
+                            <option value="Accounts Compared" class="bg-slate-800 text-white">Accounts Compared</option>
+                            <option value="Unmerged" class="bg-slate-800 text-white">Unmerged</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="portal-elevated p-3.5 rounded-xl space-y-2.5">
+                        <div class="font-bold text-blue-400 uppercase text-[11px]">Primary Account Metadata</div>
+                        <input id="sim-p-id" type="text" value="1044812" placeholder="Account ID" class="w-full px-2.5 py-1.5 rounded bg-slate-900/50 border portal-border">
+                        <input id="sim-p-first" type="text" value="Eduardo" placeholder="First Name" class="w-full px-2.5 py-1.5 rounded bg-slate-900/50 border portal-border">
+                        <input id="sim-p-last" type="text" value="Mata Jr" placeholder="Last Name / Suffix" class="w-full px-2.5 py-1.5 rounded bg-slate-900/50 border portal-border">
+                        <input id="sim-p-dob" type="date" value="1985-04-12" class="w-full px-2.5 py-1.5 rounded bg-slate-900/50 border portal-border">
+                    </div>
+                    <div class="portal-elevated p-3.5 rounded-xl space-y-2.5">
+                        <div class="font-bold text-amber-400 uppercase text-[11px]">Affected Account Metadata</div>
+                        <input id="sim-a-id" type="text" value="1099201" placeholder="Account ID" class="w-full px-2.5 py-1.5 rounded bg-slate-900/50 border portal-border">
+                        <input id="sim-a-first" type="text" value="Eduardo" placeholder="First Name" class="w-full px-2.5 py-1.5 rounded bg-slate-900/50 border portal-border">
+                        <input id="sim-a-last" type="text" value="Mata" placeholder="Last Name / Suffix" class="w-full px-2.5 py-1.5 rounded bg-slate-900/50 border portal-border">
+                        <input id="sim-a-dob" type="date" value="1991-08-20" class="w-full px-2.5 py-1.5 rounded bg-slate-900/50 border portal-border">
+                    </div>
+                </div>
+            </div>
+            <div class="px-6 py-4 border-t portal-border flex justify-end gap-2.5">
+                <button onclick="closeSimulateModal()" class="px-4 py-2 rounded-xl portal-elevated text-xs font-semibold">Cancel</button>
+                <button onclick="submitSimulatedRecord()" class="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold">
+                    Evaluate &amp; Append to Live Audit Stream
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 1LIFE LIVE PORTAL SYNC & DATABASE CONNECTOR MODAL -->
+    <div id="portal-sync-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+        <div class="portal-card rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl border portal-border">
+            <div class="px-6 py-4 border-b portal-border flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-teal-500/20 text-teal-400 flex items-center justify-center font-bold">
+                        1L
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold">1Life Portal Live Database Sync (`Merge Duplicate Account`)</h3>
+                        <p class="text-xs text-slate-400">Pulls from both <strong>Audit Trail</strong> and <strong>Merged Accounts</strong> tabs &amp; auto-expands Date Range</p>
+                    </div>
+                </div>
+                <button onclick="closeLivePortalModal()" class="p-1.5 rounded-lg portal-elevated hover:text-red-400 transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <div class="p-6 space-y-4 text-xs max-h-[80vh] overflow-y-auto">
+                <!-- Explanation of why 10/20/2026 shows 0 entries -->
+                <div class="p-3.5 rounded-xl bg-teal-500/10 border border-teal-500/30 space-y-1.5">
+                    <div class="font-bold text-teal-300 flex items-center gap-1.5">
+                        <span>💡 Why does the 1Life screenshot show "No audit trail entries to display"?</span>
+                    </div>
+                    <p class="text-slate-300 leading-relaxed">
+                        On the 1Life page (<code>Program &gt; Merge Duplicate Account</code>), the <strong>Date Range</strong> filter defaults to today only (<code>10/20/2026 - 10/20/2026</code>). When no merges have been performed yet today, the table shows 0 entries.
+                        Our sync engine automatically widens the Date Range (e.g. <code>01/01/2026 - 10/20/2026</code>) and scrapes both the <strong>Audit Trail</strong> and <strong>Merged Accounts</strong> tabs!
+                    </p>
+                </div>
+
+                <!-- Option A: Automated Playwright Sync -->
+                <div class="portal-elevated p-4 rounded-xl space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div class="font-bold text-sm text-white">Option A: Automated Playwright Portal Sync</div>
+                            <p class="text-[11px] text-slate-400">Uses your saved <code>1life_session.json</code> cookie (or opens a browser window if login has expired)</p>
+                        </div>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">Recommended</span>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Portal Start Date (MM/DD/YYYY)</label>
+                            <input id="portal-sync-start" type="text" value="01/01/2026" class="w-full px-3 py-1.5 rounded-lg bg-slate-900/60 border portal-border font-mono">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Portal End Date (MM/DD/YYYY)</label>
+                            <input id="portal-sync-end" type="text" value="10/20/2026" class="w-full px-3 py-1.5 rounded-lg bg-slate-900/60 border portal-border font-mono">
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap gap-2.5 pt-1">
+                        <button onclick="runPlaywrightPortalSync(false)" id="btn-portal-headless" class="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold transition flex items-center gap-1.5">
+                            <span>⚡ Quick Sync (Reuse Saved Session)</span>
+                        </button>
+                        <button onclick="runPlaywrightPortalSync(true)" id="btn-portal-login" class="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold transition flex items-center gap-1.5">
+                            <span>🔑 Open Browser to Login &amp; Sync Both Tabs</span>
+                        </button>
+                    </div>
+                    <div id="portal-sync-status-msg" class="text-[11px] font-mono text-slate-300 hidden"></div>
+                </div>
+
+                <!-- Option B: Instant Browser Console / Bookmarklet Bridge (Works right inside your open Chrome tab!) -->
+                <div class="portal-elevated p-4 rounded-xl space-y-2.5">
+                    <div class="font-bold text-sm text-white">Option B: Instant Chrome Tab Bridge (Zero Re-Login Needed)</div>
+                    <p class="text-[11px] text-slate-400 leading-relaxed">
+                        Since you already have <strong>Merge Duplicate Account</strong> open in Chrome, you can change the Date Range on that page (or switch between <em>Audit Trail</em> and <em>Merged Accounts</em>), open DevTools Console (<code>F12</code>), and run this 1-line snippet to push all rows directly into this dashboard's database:
+                    </p>
+                    <div class="relative">
+                        <pre id="console-bridge-snippet" class="p-3 rounded-lg bg-slate-950 text-teal-300 font-mono text-[10px] overflow-x-auto border border-slate-800">(()=&gt;{const rows=Array.from(document.querySelectorAll('table tbody tr')).map(tr=&gt;Array.from(tr.querySelectorAll('td')).map(td=&gt;td.innerText.trim())).filter(c=&gt;c.length&gt;=4).map(c=&gt;({date_time:c[0],user:c[1],action:c[2],primary_account:c[3],affected_account:c[4],activity_details:c[5]||'',status:c[6]||'Success'}));fetch('http://localhost:8095/api/ingest-portal-rows',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tab:document.querySelector('.nav-link.active, .active')?.innerText||'Audit Trail',rows})}).then(r=&gt;r.json()).then(d=&gt;alert('Synced '+d.ingested+' records to QA Audit Dashboard!'));})();</pre>
+                        <button onclick="copyBridgeSnippet()" class="mt-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-teal-300 border border-teal-500/30 font-semibold text-xs">
+                            📋 Copy 1-Click Chrome Console Sync Snippet
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="px-6 py-4 border-t portal-border flex items-center justify-between">
+                <button onclick="restoreSimulatedDataset()" class="text-xs text-slate-400 hover:text-white underline">
+                    Restore 90 Preloaded QA Demo Records
+                </button>
+                <button onclick="closeLivePortalModal()" class="px-4 py-2 rounded-xl portal-elevated text-xs font-semibold">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed bottom-5 right-5 z-50 space-y-2 pointer-events-none"></div>
+
+    <!-- Preloaded Data & Application Logic -->
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
